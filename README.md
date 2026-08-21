@@ -23,7 +23,11 @@ progress saving return a clear "not configured" message instead of working.
    no build settings to change.
 3. Add an Upstash Redis store: **Storage → Create Database → Upstash Redis**,
    then connect it to the project. Vercel injects `KV_REST_API_URL` and
-   `KV_REST_API_TOKEN` for you.
+   `KV_REST_API_TOKEN` for you. If the connect dialog offers an environment
+   variable **prefix**, leaving it blank is simplest — but a prefix is fine, since
+   the code also accepts any `<PREFIX>_KV_REST_API_URL` / `_TOKEN` spelling.
+   Only the REST variables are used; `KV_URL` and `REDIS_URL` are `rediss://`
+   endpoints for a TCP client and are ignored.
 4. Add `ANTHROPIC_API_KEY` under **Settings → Environment Variables**. Get a key
    at [console.anthropic.com](https://console.anthropic.com).
 5. Redeploy so the new variables take effect.

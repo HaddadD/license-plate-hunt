@@ -1,7 +1,23 @@
 // Thin wrapper over the Upstash Redis REST API. Plain fetch, no SDK, so it runs
-// unchanged on any host. Accepts either Vercel's KV_* names or Upstash's own.
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// unchanged on any host.
+
+// Vercel's marketplace integration lets you set a prefix, which it prepends to
+// every variable it injects (KV_REST_API_URL -> MYPREFIX_KV_REST_API_URL). Take
+// an exact match when there is one, otherwise accept any prefixed spelling.
+// Only REST names are considered — KV_URL and REDIS_URL are rediss:// endpoints
+// for a TCP client and will not work here.
+function resolveEnv(names) {
+  for (const name of names) {
+    if (process.env[name]) return process.env[name];
+  }
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value && names.some((name) => key.endsWith(`_${name}`))) return value;
+  }
+  return undefined;
+}
+
+const URL_ = resolveEnv(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"]);
+const TOKEN = resolveEnv(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"]);
 
 export const redisConfigured = Boolean(URL_ && TOKEN);
 
