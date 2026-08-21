@@ -1,4 +1,7 @@
 import { redis, redisConfigured } from "./_redis.js";
+import { CODES } from "../src/regions.js";
+
+const VALID_CODES = new Set(CODES);
 
 // Board names are the only credential here, so keep them to a predictable shape.
 export function normalizeBoardName(raw) {
@@ -41,12 +44,15 @@ export default async function handler(req, res) {
       if (codes.length > MAX_CODES) {
         return res.status(400).json({ error: "Too many entries." });
       }
-      // Rebuild the object rather than trusting what came off the wire.
+      // Reject a malformed payload outright. Silently dropping the bad entries
+      // and saving the remainder would let one bad request wipe a board.
+      // An empty object is legitimate — that's a board reset to zero.
       const clean = {};
       for (const code of codes) {
-        if (/^[A-Z]{2}$/.test(code) && Number.isFinite(Number(spotted[code]))) {
-          clean[code] = Number(spotted[code]);
+        if (!VALID_CODES.has(code) || !Number.isFinite(Number(spotted[code]))) {
+          return res.status(400).json({ error: `Not a valid entry: ${code}` });
         }
+        clean[code] = Number(spotted[code]);
       }
       await redis.set(key, JSON.stringify(clean));
       return res.status(200).json({ board, saved: Object.keys(clean).length });
