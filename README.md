@@ -80,5 +80,5 @@ re-generate after adding a plate:
 sips -Z 480 "assets/Ontario.png" --out /tmp/ON.png && cwebp -q 80 -m 6 /tmp/ON.png -o public/plates/ON.webp
 ```
 
-Washington D.C. has no photo yet; it falls back to a drawn plate, as would any
-code whose image is missing or fails to load.
+All 64 codes have a photo. Any code whose image is missing or fails to load falls
+back to a drawn plate automatically.

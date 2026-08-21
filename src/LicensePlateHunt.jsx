@@ -77,9 +77,9 @@ const PLATE_STYLES = {
 const GROUP_LABEL = { ne: "Northeast", south: "South", mw: "Midwest", west: "West", ca: "Canada" };
 
 // Photos live in public/plates/<CODE>.webp, so they are served from the site root.
-// Codes with no photo yet (currently just DC) fall back to the drawn plate above.
+// Every code has one; anything that 404s falls back to the drawn plate above.
 const PLATE_PHOTO_BASE = "/plates";
-const NO_PHOTO = new Set(["DC"]);
+const NO_PHOTO = new Set();
 
 const BOARD_KEY = "plate-board-name";
 
