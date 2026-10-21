@@ -24,14 +24,36 @@ function resolveEnv(names) {
 
 const urlVar = resolveEnv(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"]);
 const tokenVar = resolveEnv(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"]);
-const URL_ = urlVar.value;
-const TOKEN = tokenVar.value;
+
+// Some Upstash/Vercel integrations only provision a rediss:// connection
+// string. Upstash serves REST on the same host and accepts the Redis password
+// as the REST bearer token, so derive both rather than require a second pair of
+// variables. Explicit REST variables always win.
+function deriveFromConnectionString() {
+  const conn = resolveEnv(["REDIS_URL", "KV_URL", "UPSTASH_REDIS_URL"]);
+  if (!conn.value) return { name: null };
+  try {
+    const parsed = new globalThis.URL(conn.value);
+    if (!parsed.hostname || !parsed.password) return { name: null };
+    return {
+      name: conn.name,
+      url: `https://${parsed.hostname}`,
+      token: decodeURIComponent(parsed.password),
+    };
+  } catch {
+    return { name: null };
+  }
+}
+
+const derived = deriveFromConnectionString();
+const URL_ = urlVar.value || derived.url;
+const TOKEN = tokenVar.value || derived.token;
 
 // Names only — never the values. Lets a failing deploy say which variable it
 // read without exposing the credential.
 export const redisSource = {
-  urlVar: urlVar.name,
-  tokenVar: tokenVar.name,
+  urlVar: urlVar.name || (derived.url ? `${derived.name} (derived)` : null),
+  tokenVar: tokenVar.name || (derived.token ? `${derived.name} (derived)` : null),
   urlHost: URL_ ? (() => { try { return new globalThis.URL(URL_).host; } catch { return "unparseable"; } })() : null,
   ambiguous: Boolean(urlVar.ambiguous || tokenVar.ambiguous),
 };
