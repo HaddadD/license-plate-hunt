@@ -31,7 +31,14 @@ async function command(...args) {
     },
     body: JSON.stringify(args),
   });
-  if (!res.ok) throw new Error(`Redis ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    // Carry the upstream status so the route can report *why* without ever
+    // echoing the credential itself. 401 = bad/rotated token, 404 = database
+    // gone, 5xx = Upstash outage.
+    const err = new Error(`Redis ${res.status}: ${await res.text()}`);
+    err.status = res.status;
+    throw err;
+  }
   const data = await res.json();
   if (data.error) throw new Error(`Redis: ${data.error}`);
   return data.result;
