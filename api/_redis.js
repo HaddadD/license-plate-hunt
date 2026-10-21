@@ -1,11 +1,9 @@
-// Thin wrapper over the Upstash Redis REST API. Plain fetch, no SDK, so it runs
-// unchanged on any host.
+import Redis from "ioredis";
 
-// Vercel's marketplace integration lets you set a prefix, which it prepends to
-// every variable it injects (KV_REST_API_URL -> MYPREFIX_KV_REST_API_URL). Take
-// an exact match when there is one, otherwise accept any prefixed spelling.
-// Only REST names are considered — KV_URL and REDIS_URL are rediss:// endpoints
-// for a TCP client and will not work here.
+// The Vercel marketplace integrations differ in what they provision: Upstash
+// hands over REST variables, Redis Cloud only a rediss:// connection string.
+// Speaking the Redis protocol works with either, so take the connection string
+// and accept any name the integrations use, with or without a prefix.
 function resolveEnv(names) {
   for (const name of names) {
     if (process.env[name]) return { name, value: process.env[name] };
@@ -13,8 +11,6 @@ function resolveEnv(names) {
   const matches = Object.entries(process.env).filter(
     ([key, value]) => value && names.some((name) => key.endsWith(`_${name}`)),
   );
-  // More than one prefixed match means stale variables are lying around from a
-  // previous integration. Report it rather than silently picking one.
   if (matches.length > 1) {
     return { name: matches.map(([k]) => k).join(" | "), value: matches[0][1], ambiguous: true };
   }
@@ -22,74 +18,43 @@ function resolveEnv(names) {
   return { name: null, value: undefined };
 }
 
-const urlVar = resolveEnv(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"]);
-const tokenVar = resolveEnv(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"]);
+const connection = resolveEnv(["REDIS_URL", "KV_URL", "UPSTASH_REDIS_URL"]);
 
-// Some Upstash/Vercel integrations only provision a rediss:// connection
-// string. Upstash serves REST on the same host and accepts the Redis password
-// as the REST bearer token, so derive both rather than require a second pair of
-// variables. Explicit REST variables always win.
-function deriveFromConnectionString() {
-  const conn = resolveEnv(["REDIS_URL", "KV_URL", "UPSTASH_REDIS_URL"]);
-  if (!conn.value) return { name: null };
-  try {
-    const parsed = new globalThis.URL(conn.value);
-    if (!parsed.hostname || !parsed.password) return { name: null };
-    return {
-      name: conn.name,
-      url: `https://${parsed.hostname}`,
-      token: decodeURIComponent(parsed.password),
-    };
-  } catch {
-    return { name: null };
-  }
-}
+export const redisConfigured = Boolean(connection.value);
 
-const derived = deriveFromConnectionString();
-const URL_ = urlVar.value || derived.url;
-const TOKEN = tokenVar.value || derived.token;
-
-// Names only — never the values. Lets a failing deploy say which variable it
-// read without exposing the credential.
+// Names and host only — never the credential itself.
 export const redisSource = {
-  urlVar: urlVar.name || (derived.url ? `${derived.name} (derived)` : null),
-  tokenVar: tokenVar.name || (derived.token ? `${derived.name} (derived)` : null),
-  urlHost: URL_ ? (() => { try { return new globalThis.URL(URL_).host; } catch { return "unparseable"; } })() : null,
-  ambiguous: Boolean(urlVar.ambiguous || tokenVar.ambiguous),
+  connectionVar: connection.name,
+  host: connection.value
+    ? (() => {
+        try {
+          return new globalThis.URL(connection.value).hostname;
+        } catch {
+          return "unparseable";
+        }
+      })()
+    : null,
+  ambiguous: Boolean(connection.ambiguous),
 };
 
-export const redisConfigured = Boolean(URL_ && TOKEN);
-
-async function command(...args) {
-  if (!redisConfigured) throw new Error("Redis is not configured");
-  const res = await fetch(URL_, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(args),
-  });
-  if (!res.ok) {
-    // Carry the upstream status so the route can report *why* without ever
-    // echoing the credential itself. 401 = bad/rotated token, 404 = database
-    // gone, 5xx = Upstash outage.
-    const err = new Error(`Redis ${res.status}: ${await res.text()}`);
-    err.status = res.status;
-    throw err;
+// One client per warm container. Creating it per request would open a new TCP
+// connection on every invocation and exhaust the provider's connection limit.
+let client;
+function getClient() {
+  if (!client) {
+    client = new Redis(connection.value, {
+      connectTimeout: 5000,
+      commandTimeout: 5000,
+      maxRetriesPerRequest: 2,
+      // Fail fast instead of buffering commands while the socket is down.
+      enableOfflineQueue: false,
+    });
+    client.on("error", (err) => console.error("redis client error", err.message));
   }
-  const data = await res.json();
-  if (data.error) throw new Error(`Redis: ${data.error}`);
-  return data.result;
+  return client;
 }
 
 export const redis = {
-  get: (key) => command("GET", key),
-  set: (key, value) => command("SET", key, value),
-  // Increment and, on the first hit, start the expiry window.
-  async hit(key, windowSeconds) {
-    const count = await command("INCR", key);
-    if (count === 1) await command("EXPIRE", key, windowSeconds);
-    return count;
-  },
+  get: (key) => getClient().get(key),
+  set: (key, value) => getClient().set(key, value),
 };

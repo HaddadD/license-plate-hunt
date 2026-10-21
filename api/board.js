@@ -64,7 +64,7 @@ export default async function handler(req, res) {
     console.error("board error", err);
     return res.status(500).json({
       error: "Could not reach the progress store.",
-      upstream: err.status || null,
+      reason: err.message ? String(err.message).slice(0, 120) : null,
       source: redisSource,
     });
   }
