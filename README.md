@@ -2,7 +2,7 @@
 
 A road-trip logbook for spotting US and Canadian license plates. Tap a plate to
 mark it; progress saves to a named board on the server so it follows you between
-devices and can be shared with friends.
+devices and can be shared with friends. No accounts, no API keys.
 
 ## Running locally
 
@@ -11,10 +11,10 @@ npm install
 npm run dev
 ```
 
-`npm run dev` also serves the `/api` routes, so the scanner and progress saving
-work locally exactly as they do in production. Copy `.env.example` to `.env` and
-fill it in first — without the values the app still runs, but the scanner and
-progress saving return a clear "not configured" message instead of working.
+`npm run dev` also serves the `/api` routes, so progress saving works locally
+exactly as it does in production. Copy `.env.example` to `.env` and fill it in
+first — without the values the app still runs, but saving returns a clear
+"not configured" message instead of working.
 
 ## Deploying to Vercel
 
@@ -28,11 +28,13 @@ progress saving return a clear "not configured" message instead of working.
    the code also accepts any `<PREFIX>_KV_REST_API_URL` / `_TOKEN` spelling.
    Only the REST variables are used; `KV_URL` and `REDIS_URL` are `rediss://`
    endpoints for a TCP client and are ignored.
-4. Add `ANTHROPIC_API_KEY` under **Settings → Environment Variables**. Get a key
-   at [console.anthropic.com](https://console.anthropic.com).
-5. Redeploy so the new variables take effect.
+4. Redeploy so the new variables take effect.
 
-Both env vars are read server-side only — they are never sent to the browser.
+The Redis credentials are read server-side only and never reach the browser.
+
+**Free tier headroom:** Upstash Free allows 500K commands/month and 250MB. A
+board is well under 1KB, so ~50 boards is a rounding error on storage, and one
+debounced write per burst of taps keeps commands in the low thousands.
 
 ## How boards work
 
@@ -51,27 +53,12 @@ Names are normalized the same way on both sides (lowercased, non-alphanumerics
 collapsed to dashes, 32 chars max), so `Dan Road Trip` and `dan-road-trip` are
 the same board.
 
-## The scanner
-
-`api/scan.js` sends the photo to Claude and asks which plate it is. Notes:
-
-- **Scans bill to your API key**, including scans your friends run. `SCAN_RATE_LIMIT`
-  (default 20 per IP per hour) caps the damage; set it as an env var to change it.
-  Rate limiting needs Redis — without it, scanning still works but is uncapped.
-- Photos are downscaled to 1400px JPEG in the browser before upload, which keeps
-  requests under Vercel's body limit and cuts token cost.
-- The model is `claude-opus-5` at `effort: "low"`. To trade accuracy for cost,
-  change the `model` in `api/scan.js` to `claude-haiku-4-5`.
-- The response is a structured output constrained to the region codes in
-  `src/regions.js`, so the scanner can't invent a region that isn't on the board.
-
 ## Layout
 
 ```
-api/scan.js       Plate identification (holds the API key server-side)
 api/board.js      Board load/save
 api/_redis.js     Upstash REST wrapper
-src/regions.js    The 64 states/provinces — shared by the UI and the scanner
+src/regions.js    The 64 states/provinces, and the codes the API validates against
 src/LicensePlateHunt.jsx
 public/plates/    Plate photos, named by code (ON.webp, TX.webp, …)
 assets/           Original full-size plate PNGs (not deployed)

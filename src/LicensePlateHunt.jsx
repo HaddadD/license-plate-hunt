@@ -118,22 +118,6 @@ function recallBoard() {
   }
 }
 
-// Phone photos are far larger than the scanner needs and would blow the request
-// body limit, so shrink before upload. Cuts cost and latency too.
-async function fileToScaledJpeg(file, maxWidth = 1400) {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, maxWidth / bitmap.width);
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-  return { image: dataUrl.split(",")[1], mediaType: "image/jpeg" };
-}
-
 export default function LicensePlateHunt() {
   const [spotted, setSpotted] = useState({});
   const [loaded, setLoaded] = useState(false);
@@ -148,11 +132,7 @@ export default function LicensePlateHunt() {
   const syncedSnapshot = useRef(null);
   const [tab, setTab] = useState("us");
   const [query, setQuery] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState(null);
-  const [detection, setDetection] = useState(null);
   const [photoFailed, setPhotoFailed] = useState({});
-  const fileInputRef = useRef(null);
 
   // Pick up a board from the shared link first, then from this device.
   useEffect(() => {
@@ -233,11 +213,6 @@ export default function LicensePlateHunt() {
     });
   }
 
-  function markDetected(code) {
-    setSpotted((current) => ({ ...current, [code]: Date.now() }));
-    setDetection((d) => (d ? { ...d, marked: true } : d));
-  }
-
   function switchBoard() {
     setBoard("");
     setSpotted({});
@@ -251,44 +226,6 @@ export default function LicensePlateHunt() {
     const url = new URL(window.location.href);
     url.searchParams.delete("board");
     window.history.replaceState({}, "", url);
-  }
-
-  async function handleFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setScanError(null);
-    setDetection(null);
-    setScanning(true);
-    try {
-      const { image, mediaType } = await fileToScaledJpeg(file);
-      const res = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image, mediaType }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Something went wrong scanning that photo.");
-
-      if (!data.found) {
-        setDetection({ found: false, reasoning: data.reasoning });
-      } else {
-        setDetection({
-          found: true,
-          code: data.code,
-          name: data.name,
-          country: data.country,
-          confidence: data.confidence,
-          reasoning: data.reasoning,
-          alreadySpotted: !!spotted[data.code],
-          marked: false,
-        });
-      }
-    } catch (err) {
-      setScanError(err.message || "Something went wrong scanning that photo.");
-    } finally {
-      setScanning(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
   }
 
   const list = tab === "us" ? US : CA;
@@ -419,7 +356,7 @@ export default function LicensePlateHunt() {
           justify-content: center;
           flex-wrap: wrap;
         }
-        .board-form .scan-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .board-form .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
         .board-hint {
           display: block;
           margin-top: 12px;
@@ -455,42 +392,7 @@ export default function LicensePlateHunt() {
         }
         .board-switch:hover { border-color: #4a4f52; color: #F3F1EA; }
 
-        .scan-panel {
-          max-width: 640px;
-          margin: 32px auto 0;
-          padding: 0 24px;
-        }
-        .scan-box {
-          border: 2px dashed #4a4f52;
-          border-radius: 10px;
-          background: #202325;
-          padding: 22px;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          flex-wrap: wrap;
-          justify-content: center;
-          text-align: center;
-        }
-        .scan-box .icon {
-          width: 42px; height: 42px;
-          border-radius: 50%;
-          background: #F4B942;
-          color: #1B1D1F;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 20px;
-          flex-shrink: 0;
-        }
-        .scan-box .copy { text-align: left; }
-        .scan-box .copy strong {
-          font-family: 'Oswald', sans-serif;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          font-size: 16px;
-          display: block;
-        }
-        .scan-box .copy span { font-size: 12px; color: #9aa0a3; }
-        .scan-btn {
+        .btn-primary {
           background: #F4B942;
           color: #1B1D1F;
           border: none;
@@ -503,46 +405,6 @@ export default function LicensePlateHunt() {
           text-transform: uppercase;
           letter-spacing: 0.05em;
         }
-        .scan-btn:disabled { opacity: 0.6; cursor: wait; }
-        .scan-status { text-align: center; margin-top: 12px; font-size: 13px; color: #D9A441; }
-        .scan-error { text-align: center; margin-top: 12px; font-size: 13px; color: #e2705a; }
-
-        .detection {
-          margin-top: 16px;
-          border-radius: 10px;
-          border: 2px solid #F4B942;
-          background: #232628;
-          padding: 18px;
-          text-align: center;
-        }
-        .detection .verdict {
-          font-family: 'Oswald', sans-serif;
-          font-size: 22px;
-          text-transform: uppercase;
-        }
-        .detection .conf {
-          display: inline-block;
-          margin: 6px 0 10px;
-          font-size: 11px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: #9aa0a3;
-        }
-        .detection .reasoning { font-size: 12px; color: #9aa0a3; margin-bottom: 14px; }
-        .detection-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-        .detection-actions button {
-          border-radius: 6px;
-          padding: 8px 14px;
-          font-family: 'IBM Plex Mono', monospace;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .btn-mark { background: #3B6E4F; color: #F3F1EA; border: none; }
-        .btn-dismiss { background: transparent; color: #9aa0a3; border: 1px solid #4a4f52; }
-        .btn-mark:disabled { opacity: 0.7; cursor: default; }
 
         .controls {
           max-width: 960px;
@@ -750,7 +612,7 @@ export default function LicensePlateHunt() {
       <div className="hero">
         <div className="hero-eyebrow">ROAD TRIP LOGBOOK</div>
         <h1>License Plate <span>Hunt</span></h1>
-        <p>Spot a plate, tap the state or province, watch it light up. Snap a photo of one you can't place and let the scanner call it.</p>
+        <p>Spot a plate, tap the state or province, watch it light up. Share your board link to pick up where you left off on any device.</p>
         <div className="odometer-row">
           <div className="odometer">
             <div className="digits">{pad(usCount)}/51</div>
@@ -789,7 +651,7 @@ export default function LicensePlateHunt() {
               maxLength={32}
               autoFocus
             />
-            <button className="scan-btn" type="submit" disabled={normalizeBoardName(nameDraft).length < 3}>
+            <button className="btn-primary" type="submit" disabled={normalizeBoardName(nameDraft).length < 3}>
               Open board
             </button>
           </form>
@@ -810,60 +672,6 @@ export default function LicensePlateHunt() {
             </span>
             <button className="board-switch" onClick={switchBoard}>Switch board</button>
           </div>
-
-        <div className="scan-panel">
-          <div className="scan-box">
-            <div className="icon">◎</div>
-            <div className="copy">
-              <strong>Scan a plate</strong>
-              <span>Upload a photo and we'll try to identify it</span>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFile}
-              style={{ display: "none" }}
-              id="plate-upload"
-            />
-            <button
-              className="scan-btn"
-              disabled={scanning}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            >
-              {scanning ? "Scanning…" : "Choose Photo"}
-            </button>
-          </div>
-          {scanning && <div className="scan-status">Reading the plate…</div>}
-          {scanError && <div className="scan-error">{scanError}</div>}
-
-          {detection && detection.found && (
-            <div className="detection">
-              <div className="verdict">{detection.name} ({detection.code})</div>
-              <div className="conf">{detection.confidence} confidence</div>
-              <div className="reasoning">{detection.reasoning}</div>
-              <div className="detection-actions">
-                {detection.alreadySpotted || detection.marked ? (
-                  <span style={{ fontSize: 12, color: "#3B6E4F" }}>✓ Already on your board</span>
-                ) : (
-                  <button className="btn-mark" onClick={() => markDetected(detection.code)}>
-                    Mark as spotted
-                  </button>
-                )}
-                <button className="btn-dismiss" onClick={() => setDetection(null)}>Dismiss</button>
-              </div>
-            </div>
-          )}
-          {detection && !detection.found && (
-            <div className="detection">
-              <div className="verdict">Couldn't place it</div>
-              <div className="reasoning">{detection.reasoning || "Try a clearer or closer photo of the plate."}</div>
-              <div className="detection-actions">
-                <button className="btn-dismiss" onClick={() => setDetection(null)}>Dismiss</button>
-              </div>
-            </div>
-          )}
-        </div>
 
         <div className="controls">
           <div className="tabs">
