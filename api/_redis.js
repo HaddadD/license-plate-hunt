@@ -8,16 +8,33 @@
 // for a TCP client and will not work here.
 function resolveEnv(names) {
   for (const name of names) {
-    if (process.env[name]) return process.env[name];
+    if (process.env[name]) return { name, value: process.env[name] };
   }
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value && names.some((name) => key.endsWith(`_${name}`))) return value;
+  const matches = Object.entries(process.env).filter(
+    ([key, value]) => value && names.some((name) => key.endsWith(`_${name}`)),
+  );
+  // More than one prefixed match means stale variables are lying around from a
+  // previous integration. Report it rather than silently picking one.
+  if (matches.length > 1) {
+    return { name: matches.map(([k]) => k).join(" | "), value: matches[0][1], ambiguous: true };
   }
-  return undefined;
+  if (matches.length === 1) return { name: matches[0][0], value: matches[0][1] };
+  return { name: null, value: undefined };
 }
 
-const URL_ = resolveEnv(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"]);
-const TOKEN = resolveEnv(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"]);
+const urlVar = resolveEnv(["KV_REST_API_URL", "UPSTASH_REDIS_REST_URL"]);
+const tokenVar = resolveEnv(["KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN"]);
+const URL_ = urlVar.value;
+const TOKEN = tokenVar.value;
+
+// Names only — never the values. Lets a failing deploy say which variable it
+// read without exposing the credential.
+export const redisSource = {
+  urlVar: urlVar.name,
+  tokenVar: tokenVar.name,
+  urlHost: URL_ ? (() => { try { return new globalThis.URL(URL_).host; } catch { return "unparseable"; } })() : null,
+  ambiguous: Boolean(urlVar.ambiguous || tokenVar.ambiguous),
+};
 
 export const redisConfigured = Boolean(URL_ && TOKEN);
 

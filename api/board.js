@@ -1,4 +1,4 @@
-import { redis, redisConfigured } from "./_redis.js";
+import { redis, redisConfigured, redisSource } from "./_redis.js";
 import { CODES } from "../src/regions.js";
 
 const VALID_CODES = new Set(CODES);
@@ -65,6 +65,7 @@ export default async function handler(req, res) {
     return res.status(500).json({
       error: "Could not reach the progress store.",
       upstream: err.status || null,
+      source: redisSource,
     });
   }
 }
