@@ -46,8 +46,10 @@ function getClient() {
       connectTimeout: 5000,
       commandTimeout: 5000,
       maxRetriesPerRequest: 2,
-      // Fail fast instead of buffering commands while the socket is down.
-      enableOfflineQueue: false,
+      // Keep the offline queue on. A serverless cold start issues its command
+      // before the TLS handshake finishes; without the queue that first request
+      // fails outright. commandTimeout still bounds how long it can wait.
+      enableOfflineQueue: true,
     });
     client.on("error", (err) => console.error("redis client error", err.message));
   }
